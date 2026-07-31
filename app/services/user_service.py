@@ -13,9 +13,15 @@ from app.schemas.user_schema import (
 # ==========================
 
 def get_users(
-    db: Session
+    db: Session,
+    offset: int,
+    limit: int
 ):
-    return user_repo.get_all(db)
+    return user_repo.get_all(
+        db,
+        offset,
+        limit
+    )
 
 
 def get_user(

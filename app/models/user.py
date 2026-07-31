@@ -39,5 +39,6 @@ class User(Base):
 
     refresh_token = relationship(
         "RefreshToken",
-        back_populates="user"
+        back_populates="user",
+        cascade="all, delete-orphan"
     )

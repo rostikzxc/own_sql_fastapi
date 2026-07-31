@@ -1,0 +1,4 @@
+own_venv/
+__pycache__/
+.git/
+.env

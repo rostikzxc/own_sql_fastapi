@@ -24,9 +24,16 @@ def get_by_name(
 
 
 def get_all(
-    db: Session
+    db: Session,
+    offset: int = 0,
+    limit: int = 10
 ):
-    return db.query(User).all()
+    return (
+        db.query(User)
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
 
 
 def get_by_id(
