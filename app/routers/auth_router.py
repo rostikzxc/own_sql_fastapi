@@ -9,6 +9,7 @@ from app.schemas.auth_schema import (
     TokenResponse
 )
 from app.services import auth_service
+import asyncio
 
 
 # ==========================
