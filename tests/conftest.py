@@ -7,9 +7,10 @@ from app.core.database import SessionLocal
 
 from app.main import app
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def client():
-    return TestClient(app)
+    with TestClient(app) as client:
+        yield client
 
 @pytest.fixture
 def test_user():
