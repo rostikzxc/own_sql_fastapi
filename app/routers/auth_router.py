@@ -1,6 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
+from redis.asyncio import Redis
 
+from app.tasks.auth_tasks import send_welcome_email
+from app.dependencies.redis import get_redis
 from app.dependencies.db import get_db
 from app.schemas.auth_schema import (
     LoginSchema,
@@ -9,7 +12,6 @@ from app.schemas.auth_schema import (
     TokenResponse
 )
 from app.services import auth_service
-import asyncio
 
 
 # ==========================
@@ -27,15 +29,23 @@ router = APIRouter(
 # ==========================
 
 @router.post("/register")
-def register(
+async def register(
     user: RegisterSchema,
-    db: Session = Depends(get_db)
+    request: Request,
+    db: Session = Depends(get_db),
+    redis: Redis = Depends(get_redis)
 ):
-    return auth_service.register(
+
+    new_user = auth_service.register(
         db,
         user.name,
         user.password
     )
+
+    async for key in redis.scan_iter(match="users:page:*"):
+            await redis.delete(key)
+
+    return new_user
 
 
 # ==========================
@@ -46,10 +56,33 @@ def register(
     "/login",
     response_model=TokenResponse
 )
-def login(
+async def login(
     user: LoginSchema,
-    db: Session = Depends(get_db)
+    request: Request,
+    db: Session = Depends(get_db),
+    redis: Redis = Depends(get_redis),
 ):
+
+    ip = request.client.host
+
+    ip_key = f"rate_limit:login:{ip}"
+    name_key = f"rate_limit:login:{user.name}"
+    
+    ip_attempts = await redis.incr(ip_key)
+    name_attempts = await redis.incr(name_key)
+
+    if ip_attempts == 1:
+        await redis.expire(ip_key, 60)
+
+    if name_attempts == 1:
+        await redis.expire(name_key, 60)
+
+    if ip_attempts > 5 or name_attempts > 5:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests"
+        )
+
     tokens = auth_service.login(
         db,
         user.name,
