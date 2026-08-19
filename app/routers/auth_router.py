@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from redis.asyncio import Redis
 
-from app.tasks.auth_tasks import send_welcome_email
 from app.dependencies.redis import get_redis
 from app.dependencies.db import get_db
 from app.schemas.auth_schema import (
