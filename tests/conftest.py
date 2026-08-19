@@ -4,8 +4,26 @@ import uuid
 from app.models.user import User
 from app.core.security import hash_password
 from app.core.database import SessionLocal
+from redis import Redis as SyncRedis
+from app.core.config import settings
 
 from app.main import app
+
+
+@pytest.fixture(autouse=True)
+def clear_redis():
+    redis = SyncRedis(
+        host=settings.REDIS_HOST,
+        port=settings.REDIS_PORT,
+        decode_responses=True,
+    )
+
+    redis.flushdb()
+
+    yield
+
+    redis.flushdb()
+    redis.close()
 
 @pytest.fixture(scope="session")
 def client():
