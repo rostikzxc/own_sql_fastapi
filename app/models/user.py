@@ -1,44 +1,29 @@
-from sqlalchemy import Column, Integer, String
-from sqlalchemy.orm import relationship
+from enum import Enum
+from datetime import datetime
+
+from sqlalchemy import String, DateTime, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 
-
-# ==========================
-# User Model
-# ==========================
+class UserRole(str, Enum):
+    USER = "user"
+    ADMIN = "admin"
 
 class User(Base):
+
     __tablename__ = "users"
 
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[UserRole] = mapped_column(String(20),default=UserRole.USER, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    id = Column(
-        Integer,
-        primary_key=True
-    )
-
-
-    name = Column(
-        String,
-        nullable=False
-    )
-
-
-    hashed_password = Column(
-        String,
-        nullable=False
-    )
-
-
-    role = Column(
-        String,
-        default="user",
-        nullable=False
-    )
-
-
-    refresh_token = relationship(
-        "RefreshToken",
+    refresh_tokens: Mapped[list["RefreshToken"]] = relationship(
         back_populates="user",
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
     )
+
+    def __repr__(self) -> str:
+        return f"<User id={self.id} name={self.name!r} role={self.role}>"

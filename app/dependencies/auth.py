@@ -1,61 +1,47 @@
-from fastapi import Depends, HTTPException
-from fastapi.security import HTTPBearer
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
 from app.core.security import decode_token
 from app.dependencies.db import get_db
-from app.repositories import user_repo
+from app.models.user import User, UserRole
+from app.repositories.user_repo import UserRepository
 
-
-# ==========================
-# Authentication
-# ==========================
 
 oauth2_schema = HTTPBearer()
 
 
 def get_current_user(
-    credentials=Depends(oauth2_schema),
-    db: Session = Depends(get_db)
-):
-    token = credentials.credentials
-
-    payload = decode_token(token)
-
-    if not payload:
-        return None
-
-    if payload.get("type") != "access":
-        return None
-
-    user_id = payload.get("user_id")
-
-    if not user_id:
-        return None
-
-    return user_repo.get_by_id(
-        db,
-        user_id
+    credentials: HTTPAuthorizationCredentials = Depends(oauth2_schema),
+    db: Session = Depends(get_db),
+) -> User:
+    unauthorized = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
     )
 
+    payload = decode_token(credentials.credentials)
+    if payload is None:
+        raise unauthorized
 
-# ==========================
-# Authorization
-# ==========================
+    if payload.get("type") != "access":
+        raise unauthorized
 
-def require_admin(
-    user=Depends(get_current_user)
-):
-    if not user:
+    user_id = payload.get("user_id")
+    if user_id is None:
+        raise unauthorized
+
+    user = UserRepository(db).get_by_id(user_id)
+    if user is None:
+        raise unauthorized
+
+    return user
+
+
+def require_admin(user: User = Depends(get_current_user)) -> User:
+    if user.role != UserRole.ADMIN:
         raise HTTPException(
-            status_code=401,
-            detail="Not Authenticated"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User is not an admin",
         )
-
-    if user.role != "admin":
-        raise HTTPException(
-            status_code=403,
-            detail="User Not Admin"
-        )
-
     return user
