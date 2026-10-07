@@ -30,9 +30,9 @@ class UserService:
         return self.repo.create(name, hashed_password)
 
     def delete_user(self, user_id: int) -> User:
-    user = self.get_user(user_id)
-    self.repo.delete(user)
-    return user
+        user = self.get_user(user_id)
+        self.repo.delete(user)
+        return user
 
     def update_user(self, user_id: int, user_update: UserUpdate) -> User:
         user = self.get_user(user_id)
