@@ -29,9 +29,10 @@ class UserService:
         hashed_password = hash_password(password)
         return self.repo.create(name, hashed_password)
 
-    def delete_user(self, user_id: int) -> None:
-        user = self.get_user(user_id)  # кинет 404, если не найден
-        self.repo.delete(user)
+    def delete_user(self, user_id: int) -> User:
+    user = self.get_user(user_id)
+    self.repo.delete(user)
+    return user
 
     def update_user(self, user_id: int, user_update: UserUpdate) -> User:
         user = self.get_user(user_id)
