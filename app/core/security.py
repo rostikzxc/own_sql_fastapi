@@ -7,89 +7,46 @@ from passlib.context import CryptContext
 from app.core.config import settings
 
 
-# ==========================
-# JWT Token Creation
-# ==========================
+pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
-def create_access_token(data: dict):
+
+def _create_token(data: dict, expires_delta: timedelta, token_type: str) -> str:
     to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + expires_delta
+    to_encode.update({"exp": expire, "type": token_type})
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
-    expire = datetime.now(timezone.utc) + timedelta(
-        minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
-    )
 
-    to_encode.update({
-        "exp": expire,
-        "type": "access"
-    })
-
-    return jwt.encode(
-        to_encode,
-        settings.SECRET_KEY,
-        algorithm=settings.ALGORITHM
+def create_access_token(data: dict) -> str:
+    return _create_token(
+        data,
+        timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+        "access",
     )
 
 
-def create_refresh_token(data: dict):
-    to_encode = data.copy()
-
-    expire = datetime.now(timezone.utc) + timedelta(
-        days=settings.REFRESH_TOKEN_EXPIRE_DAYS
-    )
-
-    to_encode.update({
-        "exp": expire,
-        "type": "refresh"
-    })
-
-    return jwt.encode(
-        to_encode,
-        settings.SECRET_KEY,
-        algorithm=settings.ALGORITHM
+def create_refresh_token(data: dict) -> str:
+    return _create_token(
+        data,
+        timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+        "refresh",
     )
 
 
-def decode_token(token: str):
+def decode_token(token: str) -> dict | None:
     try:
-        return jwt.decode(
-            token,
-            settings.SECRET_KEY,
-            algorithms=[settings.ALGORITHM]
-        )
-
+        return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
     except JWTError:
         return None
 
 
-# ==========================
-# Password Hashing
-# ==========================
-
-pwd_context = CryptContext(
-    schemes=["argon2"],
-    deprecated="auto"
-)
-
-
-def hash_password(password: str):
+def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
 
-def verify_password(
-    plain_password: str,
-    hashed_password: str
-):
-    return pwd_context.verify(
-        plain_password,
-        hashed_password
-    )
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
 
 
-# ==========================
-# Refresh Token Hashing
-# ==========================
-
-def hash_refresh_token(token: str):
-    return hashlib.sha256(
-        token.encode()
-    ).hexdigest()
+def hash_refresh_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()

@@ -1,121 +1,50 @@
+from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password, verify_password
-from app.repositories import user_repo
-from app.schemas.user_schema import (
-    PasswordUpdate,
-    UserUpdate
-)
+from app.models.user import User
+from app.repositories.user_repo import UserRepository
+from app.schemas.user_schema import PasswordUpdate, UserUpdate
 
 
-# ==========================
-# Get Users
-# ==========================
+class UserService:
 
-def get_users(
-    db: Session,
-    offset: int,
-    limit: int
-):
-    return user_repo.get_all(
-        db,
-        offset,
-        limit
-    )
+    def __init__(self, db: Session):
+        self.db = db
+        self.repo = UserRepository(db)
 
+    def get_users(self, offset: int, limit: int) -> list[User]:
+        return self.repo.get_all(offset, limit)
 
-def get_user(
-    db: Session,
-    user_id: int
-):
-    return user_repo.get_by_id(
-        db,
-        user_id
-    )
+    def get_user(self, user_id: int) -> User:
+        user = self.repo.get_by_id(user_id)
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found",
+            )
+        return user
 
+    def create_user(self, name: str, password: str) -> User:
+        hashed_password = hash_password(password)
+        return self.repo.create(name, hashed_password)
 
-# ==========================
-# Create User
-# ==========================
+    def delete_user(self, user_id: int) -> None:
+        user = self.get_user(user_id)  # кинет 404, если не найден
+        self.repo.delete(user)
 
-def create_user(
-    db: Session,
-    name: str,
-    password: str
-):
-    hashed_password = hash_password(
-        password
-    )
+    def update_user(self, user_id: int, user_update: UserUpdate) -> User:
+        user = self.get_user(user_id)
+        return self.repo.update(user, user_update.name)
 
-    return user_repo.create(
-        db,
-        name,
-        hashed_password
-    )
+    def update_user_password(self, user_id: int, passwords: PasswordUpdate) -> User:
+        user = self.get_user(user_id)
 
+        if not verify_password(passwords.old_password, user.hashed_password):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Old password is incorrect",
+            )
 
-# ==========================
-# Delete User
-# ==========================
-
-def delete_user(
-    db: Session,
-    user_id: int
-):
-    return user_repo.delete(
-        db,
-        user_id
-    )
-
-
-# ==========================
-# Update User
-# ==========================
-
-def update_user(
-    db: Session,
-    user_id: int,
-    user_update: UserUpdate
-):
-    return user_repo.update(
-        db,
-        user_id,
-        user_update.name
-    )
-
-
-# ==========================
-# Update Password
-# ==========================
-
-def update_user_password(
-    db: Session,
-    user_id: int,
-    passwords: PasswordUpdate
-):
-    user = user_repo.get_by_id(
-        db,
-        user_id
-    )
-
-    if not user:
-        return None
-
-
-    if not verify_password(
-        passwords.old_password,
-        user.hashed_password
-    ):
-        return None
-
-
-    hashed_password = hash_password(
-        passwords.new_password
-    )
-
-
-    return user_repo.update_password(
-        db,
-        user_id,
-        hashed_password
-    )
+        hashed_password = hash_password(passwords.new_password)
+        return self.repo.update_password(user, hashed_password)

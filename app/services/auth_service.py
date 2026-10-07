@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
+from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -11,171 +12,83 @@ from app.core.security import (
     hash_refresh_token,
     verify_password,
 )
-from app.repositories import refresh_token_repo
-from app.repositories.user_repo import (
-    create,
-    get_by_name,
-)
+from app.repositories.refresh_token_repo import RefreshTokenRepository
+from app.repositories.user_repo import UserRepository
 
 
-# ==========================
-# Register
-# ==========================
+class AuthService:
 
-def register(
-    db: Session,
-    name: str,
-    password: str
-):
-    user = get_by_name(
-        db,
-        name
-    )
+    def __init__(self, db: Session):
+        self.db = db
+        self.users = UserRepository(db)
+        self.tokens = RefreshTokenRepository(db)
 
-    if user:
-        return None
+    def register(self, name: str, password: str):
+        if self.users.get_by_name(name) is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="User with this name already exists",
+            )
 
-    hashed_password = hash_password(
-        password
-    )
+        hashed_password = hash_password(password)
+        return self.users.create(name, hashed_password)
 
-    return create(
-        db,
-        name,
-        hashed_password
-    )
+    def login(self, name: str, password: str) -> dict:
+        user = self.users.get_by_name(name)
 
+        invalid_credentials = HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid name or password",
+        )
 
-# ==========================
-# Login
-# ==========================
+        if user is None:
+            raise invalid_credentials
+        if not verify_password(password, user.hashed_password):
+            raise invalid_credentials
 
-def login(
-    db: Session,
-    name: str,
-    password: str
-):
-    user = get_by_name(
-        db,
-        name
-    )
+        access_token = create_access_token({"user_id": user.id})
+        refresh_token = create_refresh_token({"user_id": user.id})
 
-    if not user:
-        return None
+        token_hash = hash_refresh_token(refresh_token)
+        expires_at = datetime.now(timezone.utc) + timedelta(
+            days=settings.REFRESH_TOKEN_EXPIRE_DAYS
+        )
+        self.tokens.create(user.id, token_hash, expires_at)
 
-    if not verify_password(
-        password,
-        user.hashed_password
-    ):
-        return None
+        return {"access_token": access_token, "refresh_token": refresh_token}
 
+    def refresh_access_token(self, refresh_token: str) -> dict:
+        invalid_token = HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        )
 
-    access_token = create_access_token({
-        "user_id": user.id
-    })
+        payload = decode_token(refresh_token)
+        if payload is None or payload.get("type") != "refresh":
+            raise invalid_token
 
-    refresh_token = create_refresh_token({
-        "user_id": user.id
-    })
+        token_hash = hash_refresh_token(refresh_token)
+        stored_token = self.tokens.get_by_hash(token_hash)
 
+        if stored_token is None or stored_token.revoked:
+            raise invalid_token
+        if stored_token.expires_at < datetime.now(timezone.utc):
+            raise invalid_token
 
-    token_hash = hash_refresh_token(
-        refresh_token
-    )
+        user_id = payload.get("user_id")
+        access_token = create_access_token({"user_id": user_id})
+        return {"access_token": access_token}
 
+    def logout(self, refresh_token: str) -> None:
+        token_hash = hash_refresh_token(refresh_token)
+        stored_token = self.tokens.get_by_hash(token_hash)
 
-    expires_at = datetime.now(
-        timezone.utc
-    ) + timedelta(
-        days=settings.REFRESH_TOKEN_EXPIRE_DAYS
-    )
+        if stored_token is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid refresh token",
+            )
 
+        self.tokens.revoke(stored_token)
 
-    refresh_token_repo.create(
-        db,
-        user.id,
-        token_hash,
-        expires_at
-    )
-
-
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token
-    }
-
-
-# ==========================
-# Refresh Token
-# ==========================
-
-def refresh_token(
-    db: Session,
-    refresh_token: str
-):
-    payload = decode_token(
-        refresh_token
-    )
-
-    if not payload:
-        return None
-
-
-    if payload.get("type") != "refresh":
-        return None
-
-
-    token_hash = hash_refresh_token(
-        refresh_token
-    )
-
-
-    stored_token = refresh_token_repo.get_by_hash(
-        db,
-        token_hash
-    )
-
-
-    if not stored_token:
-        return None
-
-
-    if stored_token.revoked:
-        return None
-
-
-    if stored_token.expires_at < datetime.now():
-        return None
-
-
-    user_id = payload.get(
-        "user_id"
-    )
-
-
-    access_token = create_access_token({
-        "user_id": user_id
-    })
-
-
-    return {
-        "access_token": access_token
-    }
-
-
-# ==========================
-# Logout
-# ==========================
-
-def logout(
-    db: Session,
-    refresh_token: str
-):
-    token_hash = hash_refresh_token(
-        refresh_token
-    )
-
-    return refresh_token_repo.revoke(
-        db,
-        token_hash
-    )
+        

@@ -8,120 +8,58 @@ from app.schemas.auth_schema import (
     LoginSchema,
     RegisterSchema,
     RefreshTokenSchema,
-    TokenResponse
+    TokenResponse,
 )
-from app.services import auth_service
+from app.schemas.user_schema import UserResponse
+from app.services.auth_service import AuthService
+
+router = APIRouter(prefix="/auth", tags=["AUTH"])
 
 
-# ==========================
-# Auth Router
-# ==========================
-
-router = APIRouter(
-    prefix="/auth",
-    tags=["AUTH"]
-)
-
-
-# ==========================
-# Register
-# ==========================
-
-@router.post("/register")
+@router.post("/register", response_model=UserResponse, status_code=201)
 async def register(
     user: RegisterSchema,
-    request: Request,
     db: Session = Depends(get_db),
-    redis: Redis = Depends(get_redis)
+    redis: Redis = Depends(get_redis),
 ):
-
-    new_user = auth_service.register(
-        db,
-        user.name,
-        user.password
-    )
+    new_user = AuthService(db).register(user.name, user.password)
 
     async for key in redis.scan_iter(match="users:page:*"):
-            await redis.delete(key)
+        await redis.delete(key)
 
     return new_user
 
 
-# ==========================
-# Login
-# ==========================
-
-@router.post(
-    "/login",
-    response_model=TokenResponse
-)
+@router.post("/login", response_model=TokenResponse)
 async def login(
     user: LoginSchema,
     request: Request,
     db: Session = Depends(get_db),
     redis: Redis = Depends(get_redis),
 ):
-
     ip = request.client.host
-
     ip_key = f"rate_limit:login:{ip}"
     name_key = f"rate_limit:login:{user.name}"
-    
+
     ip_attempts = await redis.incr(ip_key)
     name_attempts = await redis.incr(name_key)
 
     if ip_attempts == 1:
         await redis.expire(ip_key, 60)
-
     if name_attempts == 1:
         await redis.expire(name_key, 60)
 
     if ip_attempts > 5 or name_attempts > 5:
-        raise HTTPException(
-            status_code=429,
-            detail="Too many requests"
-        )
+        raise HTTPException(status_code=429, detail="Too many requests")
 
-    tokens = auth_service.login(
-        db,
-        user.name,
-        user.password
-    )
+    return AuthService(db).login(user.name, user.password)
 
-    if not tokens:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid credentials"
-        )
-
-    return tokens
-
-
-# ==========================
-# Refresh Token
-# ==========================
 
 @router.post("/refresh")
-def refresh_token(
-    data: RefreshTokenSchema,
-    db: Session = Depends(get_db)
-):
-    return auth_service.refresh_token(
-        db,
-        data.refresh_token
-    )
+def refresh_token(data: RefreshTokenSchema, db: Session = Depends(get_db)):
+    return AuthService(db).refresh_access_token(data.refresh_token)
 
 
-# ==========================
-# Logout
-# ==========================
-
-@router.post("/logout")
-def logout(
-    refresh_token: str,
-    db: Session = Depends(get_db)
-):
-    return auth_service.logout(
-        db,
-        refresh_token
-    )
+@router.post("/logout", status_code=204)
+def logout(data: RefreshTokenSchema, db: Session = Depends(get_db)):
+    AuthService(db).logout(data.refresh_token)
